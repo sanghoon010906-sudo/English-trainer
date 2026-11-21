@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>영어 본문 암기 트레이너</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body {
+font-family: 'Noto Sans KR', 'Inter', sans-serif;
+background-color: #f3f4f6;
+}
+/* 빈칸 글자 칸 스타일 /
+.char-slot {
+display: inline-block;
+min-width: 0.62em;
+text-align: center;
+border-bottom: 2px solid #cbd5e1;
+margin: 0 1px;
+line-height: 1.5;
+}
+/ 맞은 글자: 진한 검정색 /
+.char-slot.filled-correct {
+color: #111827;
+font-weight: 700;
+border-bottom-color: #111827;
+}
+/ 틀린 글자: 회색 /
+.char-slot.filled-wrong {
+color: #9ca3af;
+font-weight: 600;
+border-bottom-color: #9ca3af;
+}
+/ 현재 입력 커서 위치 /
+.char-slot.current-cursor {
+border-bottom-color: #2563eb;
+background-color: #eff6ff;
+border-radius: 2px;
+}
+/ 단어 사이 공백 */
+.word-gap {
+display: inline-block;
+width: 0.55em;
+}
+</style>
+</head>
+<body class="p-4 sm:p-6 max-w-2xl mx-auto space-y-5">
+
+<!-- 1. 영어 글 사진 가져오기 -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 sm:p-6">
+<h2 class="text-lg font-bold text-gray-800 mb-3">1. 영어 글 사진 가져오기</h2>
+
+<div class="flex flex-wrap items-center gap-3">
+<label for="imageInput" class="cursor-pointer inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium px-4 py-2.5 rounded-xl transition shadow-sm">
+<span>📷 사진 촬영 / 갤러리</span>
+</label>
+<input type="file" id="imageInput" accept="image/*" class="hidden">
+<span id="ocrStatus" class="text-sm text-gray-500">예시 문장이 자동으로 준비되어 있습니다. 바로 아래에서 연습해 보세요!</span>
+</div>
+
+<div id="imagePreviewContainer" class="hidden mt-4">
+<img id="imagePreview" class="max-h-48 rounded-xl border border-gray-200 object-contain" alt="업로드된 지문 이미지">
+</div>
+</div>
+
+<!-- 2. 인식된 영어 확인 -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 sm:p-6">
+<div class="flex justify-between items-center mb-3">
+<h2 class="text-lg font-bold text-gray-800">2. 인식된 영어 확인</h2>
+<div class="flex items-center gap-3">
+<button id="toggleSourceBtn" type="button" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1 rounded-lg font-medium transition">
+원문 보기
+</button>
+<button id="nextSampleBtn" type="button" class="text-xs text-blue-600 hover:underline font-semibold">
+다른 예시 문장 ↻
+</button>
+</div>
+</div>
+
+<textarea id="sourceEnglish" rows="3"
+class="w-full p-3.5 text-gray-800 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition text-base"
+placeholder="사진에서 읽은 영어가 여기에 나타나요. 필요하면 직접 수정하세요."></textarea>
+
+<div class="flex flex-wrap gap-2.5 mt-3">
+<button id="translateBtn" type="button" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl transition shadow-sm text-sm">
+한국어 번역하기
+</button>
+<button id="startPracticeBtn" type="button" class="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-4 py-2.5 rounded-xl transition text-sm">
+이 문장으로 연습 시작
+</button>
+</div>
+<p class="text-xs text-gray-400 mt-2.5">사진 인식은 기기에서 실행됩니다. 번역할 때는 문장이 번역 서비스로 전송됩니다.</p>
+</div>
+
+<!-- 3. 영어 타이핑 연습 -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 sm:p-6">
+<div class="flex justify-between items-center mb-3">
+<h2 class="text-lg font-bold text-gray-800">3. 영어 타이핑 연습</h2>
+<div class="flex items-center gap-2">
+<span id="pageIndicator" class="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700">1 / 1 문장</span>
+<span id="progressBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">0% 일치</span>
+</div>
+</div>
+
+<!-- 문장 페이지 이동 바 -->
+<div class="flex items-center justify-between gap-2 mb-3">
+<button id="prevSentenceBtn" type="button" class="bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:pointer-events-none text-gray-700 font-medium px-3 py-1.5 rounded-xl transition text-xs">
+← 이전 문장
+</button>
+<span id="currentSentenceSummary" class="text-xs text-gray-500 truncate">현재 페이지 문장</span>
+<button id="nextSentenceBtn" type="button" class="bg-gray-100 hover:bg-gray-200 disabled:opacity-40 disabled:pointer-events-none text-gray-700 font-medium px-3 py-1.5 rounded-xl transition text-xs">
+다음 문장 →
+</button>
+</div>
+
+<!-- 단어별 글자 수 가이드 박스 (터치/타이핑 시 글자가 빈칸 위에 직접 표시됨) -->
+<div id="letterHintContainer" onclick="focusTypingInput()" class="cursor-text mb-3 p-3.5 bg-slate-50 rounded-xl border-2 border-slate-200 focus-within:border-blue-500 transition">
+<div class="flex justify-between items-center mb-2">
+<span class="text-xs font-bold text-slate-600">빈칸을 터치해 영작하세요 (칸 위에 바로 입력됩니다)</span>
+<label onclick="event.stopPropagation()" class="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+<input type="checkbox" id="toggleFirstLetter" class="rounded text-blue-600">
+<span>첫 글자 힌트</span>
+</label>
+</div>
+<div id="letterHintBox" class="text-base sm:text-lg font-mono text-slate-700 leading-loose break-words"></div>
+</div>
+
+<!-- 영어 빈칸 아래 한국어 뜻 표시 영역 -->
+<div id="practiceGuide" class="mb-4"></div>
+
+<!-- 100% 완료 축하 메시지 -->
+<div id="completeBanner" class="hidden mb-4 p-3.5 bg-green-50 border border-green-200 rounded-xl text-center text-green-800 font-bold text-sm">
+🎉 완벽하게 암기했습니다! 다음 문장으로 넘어가거나 다시 연습해 보세요.
+</div>
+
+<!-- 키보드 입력 수신용 숨김 입력창 -->
+<div class="relative">
+<textarea id="typingInput" rows="1" class="opacity-0 absolute inset-0 w-full h-full -z-10" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+<button id="openKeyboardBtn" type="button" class="w-full py-2.5 px-3 bg-blue-50/70 hover:bg-blue-100/70 text-blue-700 text-xs font-semibold rounded-xl border border-blue-200 transition">
+⌨️ 키보드 열기 (여기를 누르거나 위 빈칸을 눌러 타이핑하세요)
+</button>
+</div>
+
+<!-- 범례 및 하단 버튼 -->
+<div class="flex flex-wrap items-center justify-between gap-2 mt-3.5">
+<div class="flex items-center gap-3.5 text-xs">
+<span class="flex items-center gap-1.5 text-gray-900 font-bold">
+<span class="w-3 h-3 rounded-full bg-gray-900 inline-block"></span> 맞은 글자 (검정색)
+</span>
+<span class="flex items-center gap-1.5 text-gray-400 font-medium">
+<span class="w-3 h-3 rounded-full bg-gray-400 inline-block"></span> 틀린 글자 (회색)
+</span>
+</div>
+
+<div class="flex gap-2">
+<button id="clearInputBtn" type="button" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3.5 py-2 rounded-xl transition text-sm">
+입력 지우기
+</button>
+<button id="peekAnswerBtn" type="button" class="bg-amber-50 hover:bg-amber-100 text-amber-700 font-medium px-3.5 py-2 rounded-xl transition text-sm">
+정답 잠깐 보기
+</button>
+</div>
+</div>
+
+<!-- 정답 잠깐 보기 알림 박스 -->
+<div id="answerPeekBox" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900 font-mono"></div>
+</div>
+
+<script>
+// 테스트용 예시 문장 목록 (여러 문장 구성)
+const SAMPLE_SENTENCES = [
+{
+en: "The only way to do great work is to love what you do. Stay hungry, stay foolish.",
+ko: "위대한 일을 하는 유일한 방법은 당신이 하는 일을 사랑하는 것이다. 늘 갈망하고, 우직하게 나아가라."
+},
+{
+en: "Success is not final, failure is not fatal. It is the courage to continue that counts.",
+ko: "성공은 끝이 아니며, 실패는 치명적이지 않다. 중요한 것은 계속하려는 용기다."
+},
+{
+en: "Education is the most powerful weapon. You can use it to change the world.",
+ko: "교육은 가장 강력한 무기이다. 그것을 사용해 세상을 바꿀 수 있다."
+}
+ ];
+
+let currentSampleIndex = 0;
+let sentencePages = []; // { en: string, ko: string } 배열
+let currentPageIndex = 0;
+let targetText = "";
+let koreanTranslation = "";
+let isSourceHidden = false;
+let autoAdvanceTimer = null;
+
+// DOM 요소 참조
+const imageInput = document.getElementById('imageInput');
+const ocrStatus = document.getElementById('ocrStatus');
+const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+const imagePreview = document.getElementById('imagePreview');
+const sourceEnglish = document.getElementById('sourceEnglish');
+const toggleSourceBtn = document.getElementById('toggleSourceBtn');
+const nextSampleBtn = document.getElementById('nextSampleBtn');
+const translateBtn = document.getElementById('translateBtn');
+const startPracticeBtn = document.getElementById('startPracticeBtn');
+
+const pageIndicator = document.getElementById('pageIndicator');
+const prevSentenceBtn = document.getElementById('prevSentenceBtn');
+const nextSentenceBtn = document.getElementById('nextSentenceBtn');
+const currentSentenceSummary = document.getElementById('currentSentenceSummary');
+
+const practiceGuide = document.getElementById('practiceGuide');
+const letterHintBox = document.getElementById('letterHintBox');
+const toggleFirstLetter = document.getElementById('toggleFirstLetter');
+
+const typingInput = document.getElementById('typingInput');
+const openKeyboardBtn = document.getElementById('openKeyboardBtn');
+const progressBadge = document.getElementById('progressBadge');
+const clearInputBtn = document.getElementById('clearInputBtn');
+const peekAnswerBtn = document.getElementById('peekAnswerBtn');
+const answerPeekBox = document.getElementById('answerPeekBox');
+const completeBanner = document.getElementById('completeBanner');
+
+// HTML 이스케이프 헬퍼 함수
+function escapeHtml(text) {
+if (!text) return "";
+return text
+.replace(/&/g, "&")
+.replace(/</g, "<")
+.replace(/>/g, ">")
+.replace(/"/g, """)
+.replace(/'/g, "'");
+}
+
+// 입력창에 포커스 이동
+function focusTypingInput() {
+typingInput.focus();
+}
+
+openKeyboardBtn.addEventListener('click', focusTypingInput);
+
+// 자동 페이지 전환 타이머 초기화
+function clearAutoAdvanceTimer() {
+if (autoAdvanceTimer) {
+clearTimeout(autoAdvanceTimer);
+autoAdvanceTimer = null;
+}
+}
+
+// 영어 본문을 문장 단위로 분리
+function splitEnglishSentences(text) {
+const matches = text.match(/[^.!?]+[.!?]+(?:\s+|
+/g);
+if (!matches) return [text.trim()].filter(Boolean);
+return matches.map(s => s.trim()).filter(Boolean);
+}
+
+// 한국어 해석을 문장 단위로 분리 (마침표/물음표/느낌표/줄바꿈 기준)
+function splitKoreanSentences(text) {
+if (!text) return [];
+const normalized = text.replace(/\r?\n+/g, '. ').replace(/.\s*./g, '.').trim();
+const matches = normalized.match(/[^.!?]+[.!?]+(?:\s+|
+
+/g);
+if (!matches) return [text.trim()].filter(Boolean);
+return matches.map(s => s.trim()).filter(Boolean);
+}
+
+// 영어 문장 개수(targetCount)에 맞춰 한국어 해석을 각 문장에 분배
+function distributeKoreanToEnglishCount(koFullText, targetCount) {
+const cleanKo = (koFullText || '').replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+if (!cleanKo) return [];
+if (targetCount <= 1) return [cleanKo];
+
+const koList = splitKoreanSentences(cleanKo);
+if (koList.length === targetCount) {
+return koList;
+}
+
+// 한국어 문장 수가 영어 문장 수보다 적거나 많을 때: 문장 단위를 합치거나 쪼개어 targetCount에 맞춤
+if (koList.length > targetCount) {
+const result = [];
+const baseSize = Math.floor(koList.length / targetCount);
+let remainder = koList.length % targetCount;
+let cursor = 0;
+
+for (let i = 0; i < targetCount; i++) {
+const take = baseSize + (remainder > 0 ? 1 : 0);
+if (remainder > 0) remainder--;
+const slice = koList.slice(cursor, cursor + take).join(' ').trim();
+result.push(slice || koList[koList.length - 1] || '');
+cursor += take;
+}
+return result;
+}
+
+// 한국어 문장 수가 영어 문장 수보다 적은 경우 (예: 긴 번역문이 1~2문장으로만 온 경우)
+// 기존 한국어 문장들을 우선 배치하고, 남는 뒷 문장은 절/쉼표/공백 기준으로 나누어 채움
+const pieces = [];
+for (const sent of koList) {
+pieces.push(sent);
+}
+
+while (pieces.length < targetCount) {
+// 가장 긴 조각을 찾아 절반 지점의 문장부호/공백 기준으로 분리
+let longestIdx = 0;
+for (let i = 1; i < pieces.length; i++) {
+if (pieces[i].length > pieces[longestIdx].length) {
+longestIdx = i;
+}
+}
+const targetPiece = pieces[longestIdx];
+if (targetPiece.length < 12) {
+pieces.push(targetPiece);
+continue;
+}
+
+const mid = Math.floor(targetPiece.length / 2);
+// 중간 부근에서 쉼표, 마침표, 또는 공백 찾기
+let splitPos = -1;
+for (let offset = 0; offset < Math.floor(targetPiece.length * 0.35); offset++) {
+const rightIdx = mid + offset;
+const leftIdx = mid - offset;
+if (rightIdx < targetPiece.length - 1 && /[,.·\s]/.test(targetPiece[rightIdx])) {
+splitPos = rightIdx + 1;
+break;
+}
+if (leftIdx > 1 && /[,.·\s]/.test(targetPiece[leftIdx])) {
+splitPos = leftIdx + 1;
+break;
+}
+}
+
+if (splitPos > 0 && splitPos < targetPiece.length) {
+const leftPart = targetPiece.slice(0, splitPos).trim();
+const rightPart = targetPiece.slice(splitPos).trim();
+if (leftPart && rightPart) {
+pieces.splice(longestIdx, 1, leftPart, rightPart);
+} else {
+pieces.push(targetPiece);
+}
+} else {
+pieces.push(targetPiece);
+}
+}
+
+return pieces.slice(0, targetCount);
+}
+
+// 영어/한국어 문장 쌍으로 페이지 목록 구성
+function buildSentencePages(enFullText, koFullText) {
+const enList = splitEnglishSentences(enFullText);
+
+if (enList.length <= 1) {
+return [{
+en: enFullText.trim(),
+ko: (koFullText || '').trim()
+}];
+}
+
+const mappedKoList = distributeKoreanToEnglishCount(koFullText, enList.length);
+
+return enList.map((enSentence, idx) => ({
+en: enSentence,
+ko: mappedKoList[idx] || ""
+}));
+}
+
+// 페이지 이동 컨트롤 UI 갱신
+function updatePageControls() {
+const totalPages = Math.max(1, sentencePages.length);
+pageIndicator.textContent = ${currentPageIndex + 1} / ${totalPages} 문장;
+prevSentenceBtn.disabled = currentPageIndex <= 0;
+nextSentenceBtn.disabled = currentPageIndex >= totalPages - 1;
+currentSentenceSummary.textContent = ${currentPageIndex + 1}번째 문장 연습 중`;
+}
+
+// 특정 페이지 문장 로드
+function loadPage(pageIdx) {
+clearAutoAdvanceTimer();
+if (!sentencePages.length) return;
+
+currentPageIndex = Math.max(0, Math.min(pageIdx, sentencePages.length - 1));
+const currentPage = sentencePages[currentPageIndex];
+targetText = currentPage.en;
+koreanTranslation = (currentPage.ko && currentPage.ko.trim())
+? currentPage.ko.trim()
+: "이 문장의 한국어 해석이 없습니다. '뜻 직접 수정 ✎'을 눌러 입력해 주세요.";
+
+answerPeekBox.classList.add('hidden');
+updatePageControls();
+setupPracticeUI();
+}
+
+prevSentenceBtn.addEventListener('click', () => {
+if (currentPageIndex > 0) {
+loadPage(currentPageIndex - 1);
+focusTypingInput();
+}
+});
+
+nextSentenceBtn.addEventListener('click', () => {
+if (currentPageIndex < sentencePages.length - 1) {
+loadPage(currentPageIndex + 1);
+focusTypingInput();
+}
+});
+
+// 2번 영역 원문 가리기/보이기 토글
+function setSourceVisibility(hide) {
+isSourceHidden = hide;
+if (hide) {
+sourceEnglish.classList.add('blur-sm', 'select-none');
+toggleSourceBtn.textContent = "원문 보기";
+} else {
+sourceEnglish.classList.remove('blur-sm', 'select-none');
+toggleSourceBtn.textContent = "원문 가리기";
+}
+}
+
+toggleSourceBtn.addEventListener('click', () => {
+setSourceVisibility(!isSourceHidden);
+});
+
+// 예시 문장 로드
+function loadSample(index) {
+const sample = SAMPLE_SENTENCES[index];
+sourceEnglish.value = sample.en;
+sentencePages = buildSentencePages(sample.en, sample.ko);
+
+setSourceVisibility(true);
+loadPage(0);
+}
+
+nextSampleBtn.addEventListener('click', () => {
+currentSampleIndex = (currentSampleIndex + 1) % SAMPLE_SENTENCES.length;
+loadSample(currentSampleIndex);
+ocrStatus.textContent = 예시 문장${currentSampleIndex + 1}번이 로드되었습니다.`;
+ocrStatus.className = "text-sm text-gray-500";
+});
+
+// 1. 사진 업로드 및 OCR 인식 처리
+imageInput.addEventListener('change', async (e) => {
+const file = e.target.files && e.target.files[0];
+if (!file) return;
+
+const reader = new FileReader();
+reader.onload = (ev) => {
+imagePreview.src = ev.target.result;
+imagePreviewContainer.classList.remove('hidden');
+};
+reader.readAsDataURL(file);
+
+ocrStatus.textContent = "사진에서 영어 글자를 인식하는 중입니다...";
+ocrStatus.className = "text-sm text-blue-600 font-medium";
+
+try {
+const { data } = await Tesseract.recognize(file, 'eng', {
+logger: (m) => {
+if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+const pct = Math.round(m.progress * 100);
+ocrStatus.textContent = 글자 인식 중... ${pct}%`;
+}
+}
+});
+
+const cleanedText = (data.text || '')
+.replace(/\r?\n+/g, ' ')
+.replace(/\s+/g, ' ')
+.trim();
+
+if (cleanedText) {
+sourceEnglish.value = cleanedText;
+setSourceVisibility(false);
+ocrStatus.textContent = "영어 글자 인식 완료! 필요하면 수정 후 번역하거나 연습을 시작하세요.";
+ocrStatus.className = "text-sm text-green-600 font-medium";
+} else {
+ocrStatus.textContent = "글자를 찾지 못했습니다. 직접 입력하거나 다른 사진을 선택해 주세요.";
+ocrStatus.className = "text-sm text-amber-600 font-medium";
+}
+} catch (err) {
+console.error("OCR 오류:", err);
+ocrStatus.textContent = "글자 인식 중 오류가 발생했습니다. 직접 입력해 주세요.";
+ocrStatus.className = "text-sm text-red-600 font-medium";
+}
+});
+
+// 긴 텍스트를 400자 단위로 안전하게 분할
+function splitTextForTranslation(text, maxLen = 400) {
+const chunks = [];
+let current = "";
+const sentences = text.match(/[^.!?]+[.!?]\s|.+/g) || [text];
+
+for (const part of sentences) {
+if ((current + part).length > maxLen) {
+if (current.trim()) {
+chunks.push(current.trim());
+current = "";
+}
+if (part.length > maxLen) {
+for (let i = 0; i < part.length; i += maxLen) {
+chunks.push(part.slice(i, i + maxLen).trim());
+}
+} else {
+current = part;
+}
+} else {
+current += part;
+}
+}
+if (current.trim()) {
+chunks.push(current.trim());
+}
+return chunks;
+}
+
+// 단일 청크 번역 (MyMemory -> Google Translate 백업)
+async function translateChunk(chunk) {
+try {
+const url = https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=en|ko`;
+const res = await fetch(url);
+if (res.ok) {
+const data = await res.json();
+const translated = data?.responseData?.translatedText || "";
+if (translated && !translated.toUpperCase().includes("QUERY LENGTH LIMIT EXCEEDED")) {
+return translated;
+}
+}
+} catch (e) {
+console.warn("MyMemory 번역 실패, 백업 번역 시도:", e);
+}
+
+const backupUrl = https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(chunk)}`;
+const backupRes = await fetch(backupUrl);
+if (!backupRes.ok) {
+throw new Error("번역 API 요청 실패");
+}
+const backupData = await backupRes.json();
+if (Array.isArray(backupData) && Array.isArray(backupData[0])) {
+return backupData[0].map(item => item[0] || "").join("");
+}
+throw new Error("번역 결과 형식 오류");
+}
+
+// 한국어 번역하기 버튼 클릭
+translateBtn.addEventListener('click', async () => {
+const text = sourceEnglish.value.trim();
+if (!text) {
+ocrStatus.textContent = "먼저 영어 문장을 입력하거나 사진을 선택해 주세요.";
+ocrStatus.className = "text-sm text-amber-600 font-medium";
+return;
+}
+
+translateBtn.disabled = true;
+const originalBtnText = translateBtn.textContent;
+translateBtn.textContent = "번역 중...";
+
+try {
+// 영어 문장 단위로 각각 번역하면 페이지별 한국어 해석이 정확하게 1:1 매칭됨
+const enSentences = splitEnglishSentences(text);
+const sentenceTranslations = [];
+
+for (let i = 0; i < enSentences.length; i++) {
+if (enSentences.length > 1) {
+translateBtn.textContent = 번역 중 (${i + 1}/${enSentences.length})...;
+}
+const chunks = splitTextForTranslation(enSentences[i], 400);
+const chunkResults = [];
+for (let c = 0; c < chunks.length; c++) {
+const partResult = await translateChunk(chunks[c]);
+chunkResults.push(partResult.trim());
+}
+const singleSentKo = chunkResults.join(" ").trim();
+sentenceTranslations.push(singleSentKo);
+}
+
+koreanTranslation = sentenceTranslations.join(" ").trim();
+sentencePages = enSentences.map((enSent, idx) => ({
+en: enSent,
+ko: sentenceTranslations[idx] || ""
+}));
+setSourceVisibility(true);
+loadPage(0);
+} catch (err) {
+console.error("번역 오류:", err);
+koreanTranslation = "자동 번역에 실패했습니다. '뜻 직접 수정 ✎'을 눌러 한국어 뜻을 직접 입력해 주세요.";
+sentencePages = buildSentencePages(text, koreanTranslation);
+loadPage(0);
+} finally {
+translateBtn.disabled = false;
+translateBtn.textContent = originalBtnText;
+}
+});
+
+// 이 문장으로 연습 시작 버튼 클릭
+startPracticeBtn.addEventListener('click', () => {
+const text = sourceEnglish.value.trim();
+if (!text) {
+ocrStatus.textContent = "연습할 영어 문장을 입력해 주세요.";
+ocrStatus.className = "text-sm text-amber-600 font-medium";
+return;
+}
+
+const existingKo = koreanTranslation && !koreanTranslation.includes("한국어 해석이 아직 없습니다")
+? koreanTranslation
+: "";
+sentencePages = buildSentencePages(text, existingKo);
+if (!sentencePages[0].ko) {
+sentencePages = sentencePages.map(p => ({
+...p,
+ko: "한국어 해석이 아직 없습니다. '한국어 번역하기'를 누르거나 '뜻 직접 수정 ✎'을 눌러 입력해 주세요."
+}));
+}
+
+setSourceVisibility(true);
+loadPage(0);
+focusTypingInput();
+});
+
+// 한국어 뜻 수동 수정
+window.editKoreanManually = function () {
+const nextKorean = prompt("현재 문장의 한국어 뜻을 입력하세요:", koreanTranslation);
+if (nextKorean !== null) {
+koreanTranslation = nextKorean.trim();
+if (sentencePages[currentPageIndex]) {
+sentencePages[currentPageIndex].ko = koreanTranslation;
+}
+renderKoreanBox();
+}
+};
+
+// 한국어 해석 박스 렌더링
+function renderKoreanBox() {
+practiceGuide.innerHTML = &lt;div class="p-3.5 bg-blue-50/80 border border-blue-100 rounded-xl"&gt; &lt;div class="flex justify-between items-center mb-1"&gt; &lt;span class="text-xs font-bold text-blue-600"&gt;한국어 뜻&lt;/span&gt; &lt;button type="button" onclick="editKoreanManually()" class="text-xs text-blue-600 hover:underline font-medium"&gt; 뜻 직접 수정 ✎ &lt;/button&gt; &lt;/div&gt; &lt;p class="text-gray-800 text-sm sm:text-base leading-relaxed"&gt;${escapeHtml(koreanTranslation)}</p>
+</div>
+`;
+}
+
+// 공백 및 문장부호를 제외한 실제 타이핑 문자 배열(알파벳·숫자만 채점, -, , 등 문장부호는 자동 스킵)
+function getEffectiveTypedChars(rawTyped) {
+const chars = [];
+for (let i = 0; i < rawTyped.length; i++) {
+const ch = rawTyped[i];
+if (/[a-zA-Z0-9]/.test(ch)) {
+chars.push(ch);
+}
+}
+return chars;
+}
+
+// 정답 문자열에서 실제 타이핑 대상(알파벳·숫자) 문자 목록 추출
+function getTargetAlphaNumChars(text) {
+return Array.from(text).filter(ch => /[a-zA-Z0-9]/.test(ch));
+}
+
+// 단어별 빈칸 및 입력 글자 렌더링
+function renderLetterHints() {
+if (!targetText) {
+letterHintBox.innerHTML = "";
+return;
+}
+
+const effectiveChars = getEffectiveTypedChars(typingInput.value);
+const showFirstLetter = toggleFirstLetter.checked;
+
+// 공백을 기준으로 단어 토큰 생성 (알파벳·숫자만 카운트하여 문장부호 입력 없이 진행)
+const tokens = [];
+const regex = /\S+/g;
+let match;
+let alphaNumCursor = 0;
+while ((match = regex.exec(targetText)) !== null) {
+const word = match[0];
+const wordAlphaNumCount = (word.match(/[a-zA-Z0-9]/g) || []).length;
+tokens.push({
+word: word,
+startAlphaNumIndex: alphaNumCursor
+});
+alphaNumCursor += wordAlphaNumCount;
+}
+
+let html = "";
+tokens.forEach((token, tokenIdx) => {
+const word = token.word;
+let wordAlphaNumOffset = 0;
+const alphaNumCount = (word.match(/[a-zA-Z0-9]/g) || []).length;
+let slotsHtml = "";
+let firstAlphaSeen = false;
+
+for (let i = 0; i < word.length; i++) {
+const expectedChar = word[i];
+const isAlphaNum = /[a-zA-Z0-9]/.test(expectedChar);
+
+let displayChar = " ";
+let slotClass = "char-slot";
+
+if (!isAlphaNum) {
+// -, , 등 문장부호는 입력할 필요 없이 안내용으로만 연하게 표시
+displayChar = escapeHtml(expectedChar);
+slotClass += " text-gray-400 border-transparent";
+} else {
+const alphaNumGlobalIdx = token.startAlphaNumIndex + wordAlphaNumOffset;
+const typedChar = effectiveChars[alphaNumGlobalIdx];
+
+if (typedChar !== undefined) {
+// 사용자가 입력한 글자 표시: 맞으면 검정색, 틀리면 회색
+displayChar = escapeHtml(typedChar);
+if (typedChar === expectedChar) {
+slotClass += " filled-correct";
+} else {
+slotClass += " filled-wrong";
+}
+} else {
+// 아직 입력하지 않은 빈칸
+if (showFirstLetter && !firstAlphaSeen) {
+displayChar = escapeHtml(expectedChar);
+slotClass += " text-blue-400 font-medium";
+}
+if (alphaNumGlobalIdx === effectiveChars.length) {
+slotClass += " current-cursor";
+}
+}
+
+wordAlphaNumOffset++;
+firstAlphaSeen = true;
+}
+
+slotsHtml += <span class="${slotClass}">${displayChar}&lt;/span>;
+}
+
+const countBadge = alphaNumCount > 0 ? <span class="text-xs text-slate-400 ml-0.5 align-baseline"&gt;(${alphaNumCount})</span>: ""; const spaceAfter = tokenIdx &lt; tokens.length - 1 ?<span class="word-gap"> </span>: ""; html +=<span class="inline">${slotsHtml}${countBadge}</span>${spaceAfter};
+});
+
+letterHintBox.innerHTML = html;
+}
+
+// 연습 영역 UI 초기화
+function setupPracticeUI() {
+typingInput.value = "";
+renderKoreanBox();
+renderLetterHints();
+updateProgress(0, false);
+}
+
+// 진행률 및 100% 완료 상태 업데이트 (완료 시 다음 문장 페이지로 자동 이동)
+function updateProgress(percent, isComplete = false) {
+if (isComplete) {
+const hasNextPage = currentPageIndex < sentencePages.length - 1;
+progressBadge.textContent = "🎉 100% 완벽 암기!";
+progressBadge.className = "text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-700";
+completeBanner.textContent = hasNextPage
+? 🎉 ${currentPageIndex + 1}번째 문장 완성! 잠시 후 다음 문장으로 넘어갑니다...`
+: "🎉 마지막 문장까지 완벽하게 암기했습니다!";
+completeBanner.classList.remove('hidden');
+
+if (hasNextPage && !autoAdvanceTimer) {
+autoAdvanceTimer = setTimeout(() => {
+autoAdvanceTimer = null;
+loadPage(currentPageIndex + 1);
+focusTypingInput();
+}, 900);
+}
+} else {
+clearAutoAdvanceTimer();
+progressBadge.textContent = ``${percent}% 일치`;
+progressBadge.className = "text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600";
+completeBanner.classList.add('hidden');
+}
+}
+
+// 실시간 타이핑 채점 이벤트 (문장부호(-, , 등) 및 띄어쓰기 없이 알파벳/숫자 기준으로 채점)
+typingInput.addEventListener('input', () => {
+if (!targetText) return;
+
+const targetAlphaNumList = getTargetAlphaNumChars(targetText);
+const totalCheckLen = Math.max(1, targetAlphaNumList.length);
+
+let effectiveChars = getEffectiveTypedChars(typingInput.value);
+if (effectiveChars.length > targetAlphaNumList.length) {
+effectiveChars = effectiveChars.slice(0, targetAlphaNumList.length);
+}
+
+let correctCount = 0;
+for (let i = 0; i < effectiveChars.length; i++) {
+if (targetAlphaNumList[i] !== undefined && effectiveChars[i] === targetAlphaNumList[i]) {
+correctCount++;
+}
+}
+
+renderLetterHints();
+
+const isComplete =
+effectiveChars.length === targetAlphaNumList.length &&
+targetAlphaNumList.length > 0 &&
+correctCount === targetAlphaNumList.length;
+
+const percent = isComplete
+? 100
+: Math.min(99, Math.round((correctCount / totalCheckLen) * 100));
+
+updateProgress(percent, isComplete);
+});
+
+// 첫 글자 힌트 토글 시 재렌더링
+toggleFirstLetter.addEventListener('change', () => {
+renderLetterHints();
+focusTypingInput();
+});
+
+// 입력 지우기 버튼
+clearInputBtn.addEventListener('click', () => {
+clearAutoAdvanceTimer();
+setupPracticeUI();
+focusTypingInput();
+});
+
+// 정답 잠깐 보기 버튼
+peekAnswerBtn.addEventListener('click', () => {
+if (!targetText) return;
+if (answerPeekBox.classList.contains('hidden')) {
+answerPeekBox.textContent = 정답: ${targetText};
+answerPeekBox.classList.remove('hidden');
+} else {
+answerPeekBox.classList.add('hidden');
+}
+});
+
+// 초기 예시 문장 로드
+loadSample(0);
+</script>
+</body>
+</html>
